@@ -31,6 +31,8 @@
 #define PWM_GPIO 20
 #define PSU_MODE_GPIO 23
 #define VBUS_SENSE_GPIO 24
+#define HVPS_ADC_GPIO 26
+#define VSYS_ADC_GPIO 29
 #define CHG_DONE_GPIO 22
 #define PB1_GPIO 10
 #define PB2_GPIO 11
@@ -45,7 +47,7 @@
 #define PWM_DUTY_MAX 80         // Maximum PWM duty cycle in percent
 #define PWM_MIN_PULSE 5         // Minimum on-time, in microseconds
 
-float HVPS_p_gain = 6;          // Proportional gain
+float HVPS_p_gain = 7;          // Proportional gain
 float HVPS_i_gain = 0;          // Integral gain
 
 uint16_t pwm_top = 0;
@@ -235,7 +237,9 @@ void on_pwm_wrap()
     const float vsys_conversion_factor = (3.3f * (300)/100) / (1 << 12);
 
     // Max voltage of hvfb divider is VREF * (4.7M + 4.7M + 47k) / 47k: 663.3V
-    const float hvfb_conversion_factor = (3.3f * (9400 + 47)/47) / (1 << 12);
+    //const float hvfb_conversion_factor = (3.3f * (9400 + 47)/47) / (1 << 12);
+    const float hvfb_conversion_factor = (3.3f * (9400 + 45.3)/45.3) / (1 << 12);       //// fudged to compensate for ADC parallel resistance, Rb ~= 45.3k
+
 
     static uint v_sys_raw;
     static uint v_hv_raw;
@@ -261,10 +265,10 @@ void on_pwm_wrap()
     // Set debug IO to mark start of control loop
     gpio_put(DEBUG_GPIO, 1);
 
-    adc_select_input(0);    // Sample HVFB (ADC0)
+    adc_select_input(HVPS_ADC_GPIO - 26);    // Sample HVFB (ADC0)
     v_hv_raw = adc_read();
 
-    adc_select_input(3);    // Sample V_SYS (ADC3)
+    adc_select_input(VSYS_ADC_GPIO - 26);    // Sample V_SYS (ADC3)
     v_sys_raw = adc_read();
 
     // Apply conversion factors 
@@ -424,9 +428,13 @@ void core1_entry()
 
     adc_init();
     // Set up ADC inputs
-    // GPIO29/ADC3 - V_SYS divider, RT = 200k, RB = 100k
-    adc_gpio_init(29);  
-    adc_select_input(3);
+    // V_SYS divider, RT = 200k, RB = 100k
+    adc_gpio_init(VSYS_ADC_GPIO);  
+    adc_select_input(VSYS_ADC_GPIO - 26);
+
+    // HVFB divider, RT = 4.7M*2, RB = 47k 
+    adc_gpio_init(HVPS_ADC_GPIO);
+
 
     // Configure PWM GPIO (without enabling it yet) and find out what slice is connected
     gpio_set_drive_strength(PWM_GPIO, GPIO_DRIVE_STRENGTH_12MA);
