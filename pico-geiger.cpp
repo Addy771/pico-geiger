@@ -47,7 +47,7 @@
 #define PWM_DUTY_MAX 80         // Maximum PWM duty cycle in percent
 #define PWM_MIN_PULSE 5         // Minimum on-time, in microseconds
 
-float HVPS_p_gain = 7;          // Proportional gain
+float HVPS_p_gain = 0.4;          // Proportional gain
 float HVPS_i_gain = 0;          // Integral gain
 
 uint16_t pwm_top = 0;
@@ -58,7 +58,8 @@ float HVPS_setpoint;
 float vsys = 0.0;
 float v_sys = 0.0;
 float v_hv = 0.0;
-int16_t pwm_duty = 0;
+float pwm_duty = 0;
+int16_t raw_pwm_duty;
 
 // PWM states
 enum 
@@ -137,16 +138,18 @@ int main()
     {
         display.fill(0);    // Clear display
         display.set_cursor(0,0);
-        display.print("V_SYS: ");
-        display.print_num("%.3fV\n", v_sys);        
-        display.print("PWM_STATE: ");
-        display.print_num("%d \n", pwm_state);        
+        // display.print("V_SYS: ");
+        // display.print_num("%.3fV\n", v_sys);        
+        // display.print("PWM_STATE: ");
+        // display.print_num("%d \n", pwm_state);        
         display.print("HVPS_SET: ");
         display.print_num("%.1fV\n", HVPS_setpoint);
         display.print("V_HV: ");
         display.print_num("%.1fV\n", v_hv);        
         display.print("pwm_duty: ");
-        display.print_num("%d\n", pwm_duty);
+        display.print_num("%.1f\n", pwm_duty);
+        display.print("raw_pwm_duty: ");
+        display.print_num("%d\n", raw_pwm_duty);        
 
         display.render();
         sleep_ms(10);
@@ -238,7 +241,7 @@ void on_pwm_wrap()
 
     // Max voltage of hvfb divider is VREF * (4.7M + 4.7M + 47k) / 47k: 663.3V
     //const float hvfb_conversion_factor = (3.3f * (9400 + 47)/47) / (1 << 12);
-    const float hvfb_conversion_factor = (3.3f * (9400 + 45.3)/45.3) / (1 << 12);       //// fudged to compensate for ADC parallel resistance, Rb ~= 45.3k
+    const float hvfb_conversion_factor = (3.3f * (9400 + 45.5)/45.5) / (1 << 12);       //// fudged to compensate for ADC parallel resistance, Rb ~= 45.3k
 
 
     static uint v_sys_raw;
@@ -246,6 +249,7 @@ void on_pwm_wrap()
     static float target_setpoint = 0.0;
     static uint16_t int_count = 0;
     static float ramp_rate;
+
 
     // Clear interrupt flag
     pwm_clear_irq(pwm_gpio_to_slice_num(PWM_GPIO));
@@ -373,9 +377,10 @@ void on_pwm_wrap()
 
 
     // Feedback calculation
+    // pwm_duty is scaled to 0-100
     pwm_duty = HVPS_p_gain * (HVPS_setpoint - v_hv);
 
-
+    raw_pwm_duty = (pwm_duty * pwm_top) / 100;
 
 
 
@@ -384,18 +389,18 @@ void on_pwm_wrap()
     if (pwm_state != STANDBY)
     {
         // If the on-time would be too short, keep the PWM off instead
-        if (pwm_duty < pwm_min_duty)
+        if (raw_pwm_duty < pwm_min_duty)
         {
             pwm_set_gpio_level(PWM_GPIO, 0);   
         }
         // If the duty cycle would be too high, limit it to the maximum allowed value
-        else if (pwm_duty > pwm_max_duty)
+        else if (raw_pwm_duty > pwm_max_duty)
         {
             pwm_set_gpio_level(PWM_GPIO, pwm_max_duty);   
         }
         else
         {
-            pwm_set_gpio_level(PWM_GPIO, pwm_duty);   
+            pwm_set_gpio_level(PWM_GPIO, raw_pwm_duty);   
         }
 
     }
